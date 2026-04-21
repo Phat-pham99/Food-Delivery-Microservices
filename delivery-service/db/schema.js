@@ -92,9 +92,10 @@ const driverSchema = new mongoose.Schema(
     licensePlate: { type: String, required: true },
     isAvailable: { type: Boolean, default: true },
     currentLocation: {
-      lat: { type: Number },
-      lng: { type: Number },
+      type: { type: String, enum: ["Point"], default: "Point" },
+      coordinates: { type: [Number], default: [0, 0] }, // [longitude, latitude]
     },
+    locationUpdatedAt: { type: Date },
     rating: { type: Number, default: 0.0 },
     totalDeliveries: { type: Number, default: 0 },
   },
@@ -122,6 +123,9 @@ const driverSchema = new mongoose.Schema(
 driverSchema.virtual('id').get(function() {
   return this._id;
 });
+
+// Geospatial index for proximity queries (used by $near, $geoNear)
+driverSchema.index({ currentLocation: "2dsphere" });
 
 export const Delivery = mongoose.model("Delivery", deliverySchema);
 export const Driver = mongoose.model("Driver", driverSchema);

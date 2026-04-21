@@ -8,6 +8,7 @@ export async function upsertDriver(driver) {
     licensePlate: driver.licensePlate,
     isAvailable: driver.isAvailable,
     currentLocation: driver.currentLocation,
+    locationUpdatedAt: driver.locationUpdatedAt,
     rating: driver.rating,
     totalDeliveries: driver.totalDeliveries,
     updatedAt: new Date(),

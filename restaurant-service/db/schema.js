@@ -22,6 +22,10 @@ const restaurantSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    location: {
+      type: { type: String, enum: ["Point"], default: "Point" },
+      coordinates: { type: [Number] }, // [longitude, latitude]
+    },
     phone: {
       type: String,
       required: true,
@@ -76,6 +80,9 @@ const restaurantSchema = new mongoose.Schema(
 restaurantSchema.virtual('id').get(function() {
   return this._id;
 });
+
+// Geospatial index for proximity queries (restaurants near me)
+restaurantSchema.index({ location: "2dsphere" });
 
 const menuItemSchema = new mongoose.Schema(
   {

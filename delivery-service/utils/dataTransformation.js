@@ -66,6 +66,7 @@ export const transformDriver = (driver) => {
     licensePlate: driver.licensePlate,
     isAvailable: driver.isAvailable,
     currentLocation: driver.currentLocation,
+    locationUpdatedAt: driver.locationUpdatedAt,
     rating: driver.rating,
     totalDeliveries: driver.totalDeliveries,
     createdAt: driver.createdAt,

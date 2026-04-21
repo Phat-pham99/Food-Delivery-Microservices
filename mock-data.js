@@ -253,6 +253,7 @@ const restaurantsData = [
     name: "Mario's Pizza Palace",
     cuisine: "Italian",
     address: "123 Main St, Downtown",
+    location: { type: "Point", coordinates: [-74.0060, 40.7128] }, // Lower Manhattan
     phone: "+1-555-0123",
     rating: 4.5,
     deliveryTime: "25-35 min",
@@ -270,6 +271,7 @@ const restaurantsData = [
     name: "Burger Junction",
     cuisine: "American",
     address: "456 Oak Ave, Midtown",
+    location: { type: "Point", coordinates: [-73.9857, 40.7484] }, // Midtown Manhattan (near Empire State)
     phone: "+1-555-0456",
     rating: 4.2,
     deliveryTime: "20-30 min",
@@ -286,6 +288,7 @@ const restaurantsData = [
     name: "Thai Garden",
     cuisine: "Thai",
     address: "789 Pine St, Uptown",
+    location: { type: "Point", coordinates: [-73.9680, 40.7851] }, // Upper West Side
     phone: "+1-555-0789",
     rating: 4.7,
     deliveryTime: "30-40 min",
@@ -302,6 +305,7 @@ const restaurantsData = [
     name: "The Golden Wok",
     cuisine: "Chinese",
     address: "101 Maple Dr, Suburbia",
+    location: { type: "Point", coordinates: [-73.9972, 40.7157] }, // Chinatown
     phone: "+1-555-1010",
     rating: 4.4,
     deliveryTime: "35-45 min",
@@ -319,6 +323,7 @@ const restaurantsData = [
     name: "Sushi Express",
     cuisine: "Japanese",
     address: "212 Birch Rd, Lakeside",
+    location: { type: "Point", coordinates: [-73.9654, 40.7829] }, // Upper East Side
     phone: "+1-555-2121",
     rating: 4.8,
     deliveryTime: "40-50 min",
@@ -336,6 +341,7 @@ const restaurantsData = [
     name: "Taco Fiesta",
     cuisine: "Mexican",
     address: "333 Cedar Blvd, West End",
+    location: { type: "Point", coordinates: [-74.0014, 40.7425] }, // Chelsea
     phone: "+1-555-3333",
     rating: 4.6,
     deliveryTime: "20-25 min",
@@ -353,6 +359,7 @@ const restaurantsData = [
     name: "The Curry House",
     cuisine: "Indian",
     address: "444 Spruce Ave, Eastville",
+    location: { type: "Point", coordinates: [-73.9787, 40.7291] }, // East Village
     phone: "+1-555-4444",
     rating: 4.9,
     deliveryTime: "45-55 min",
@@ -370,6 +377,7 @@ const restaurantsData = [
     name: "Le Petit Bistro",
     cuisine: "French",
     address: "555 Willow Ln, Old Town",
+    location: { type: "Point", coordinates: [-74.0029, 40.7339] }, // Greenwich Village
     phone: "+1-555-5555",
     rating: 4.3,
     deliveryTime: "50-60 min",
@@ -387,6 +395,7 @@ const restaurantsData = [
     name: "The Green Leaf",
     cuisine: "Vegan",
     address: "666 Elm St, Greenfield",
+    location: { type: "Point", coordinates: [-73.9590, 40.7143] }, // Williamsburg, Brooklyn
     phone: "+1-555-6666",
     rating: 4.7,
     deliveryTime: "25-35 min",
@@ -404,6 +413,7 @@ const restaurantsData = [
     name: "Smoky Barrel BBQ",
     cuisine: "BBQ",
     address: "777 Hickory Rd, Riverside",
+    location: { type: "Point", coordinates: [-73.9441, 40.8003] }, // Harlem
     phone: "+1-555-7777",
     rating: 4.5,
     deliveryTime: "30-40 min",
@@ -421,6 +431,7 @@ const restaurantsData = [
     name: "Mediterranean Delight",
     cuisine: "Mediterranean",
     address: "888 Olive Grove, Hilltop",
+    location: { type: "Point", coordinates: [-73.9419, 40.8296] }, // Washington Heights
     phone: "+1-555-8888",
     rating: 4.6,
     deliveryTime: "35-45 min",
@@ -437,6 +448,7 @@ const restaurantsData = [
     name: "The Breakfast Nook",
     cuisine: "Breakfast",
     address: "999 Sunrise Ct, Morningside",
+    location: { type: "Point", coordinates: [-73.9626, 40.8075] }, // Morningside Heights
     phone: "+1-555-9999",
     rating: 4.8,
     deliveryTime: "15-25 min",
@@ -454,6 +466,7 @@ const restaurantsData = [
     name: "Pho Kingdom",
     cuisine: "Vietnamese",
     address: "111 Lotus St, Little Saigon",
+    location: { type: "Point", coordinates: [-73.9993, 40.7193] }, // Little Italy / Nolita
     phone: "+1-555-1111",
     rating: 4.7,
     deliveryTime: "30-40 min",
@@ -471,6 +484,7 @@ const restaurantsData = [
     name: "Seoul Food",
     cuisine: "Korean",
     address: "222 Kimchi Ave, Koreatown",
+    location: { type: "Point", coordinates: [-73.9874, 40.7479] }, // Koreatown (32nd St)
     phone: "+1-555-2222",
     rating: 4.6,
     deliveryTime: "35-45 min",
@@ -488,6 +502,7 @@ const restaurantsData = [
     name: "The Sweet Spot",
     cuisine: "Desserts",
     address: "333 Sugar Lane, Sweetwater",
+    location: { type: "Point", coordinates: [-73.9934, 40.7505] }, // Herald Square
     phone: "+1-555-3330",
     rating: 4.9,
     deliveryTime: "20-30 min",
@@ -1807,6 +1822,7 @@ const driversData = [
     licensePlate: "ABC-123",
     isAvailable: true,
     currentLocation: { type: "Point", coordinates: [-74.006, 40.7128] },
+    locationUpdatedAt: new Date(),
     rating: 4.8,
     totalDeliveries: 156,
   },
@@ -1818,6 +1834,7 @@ const driversData = [
     licensePlate: "XYZ-789",
     isAvailable: true,
     currentLocation: { type: "Point", coordinates: [-73.9851, 40.7589] },
+    locationUpdatedAt: new Date(),
     rating: 4.9,
     totalDeliveries: 203,
   },
@@ -1829,6 +1846,7 @@ const driversData = [
     licensePlate: "DEF-456",
     isAvailable: true,
     currentLocation: { type: "Point", coordinates: [-73.9934, 40.7505] },
+    locationUpdatedAt: new Date(),
     rating: 4.6,
     totalDeliveries: 89,
   },
@@ -1840,6 +1858,7 @@ const driversData = [
     licensePlate: "GHI-789",
     isAvailable: true,
     currentLocation: { type: "Point", coordinates: [-73.7949, 40.7282] },
+    locationUpdatedAt: new Date(),
     rating: 4.7,
     totalDeliveries: 134,
   },
@@ -1851,6 +1870,7 @@ const driversData = [
     licensePlate: "JKL-012",
     isAvailable: true,
     currentLocation: { type: "Point", coordinates: [-73.9776, 40.7614] },
+    locationUpdatedAt: new Date(),
     rating: 4.5,
     totalDeliveries: 67,
   },

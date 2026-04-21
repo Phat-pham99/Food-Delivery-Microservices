@@ -120,6 +120,24 @@ services:
       timeout: 5s
       retries: 5
 
+  # OSRM - Open Source Routing Machine for driver proximity calculations
+  # Requires running ./osrm-setup.sh first to download and process NYC OSM data
+  osrm:
+    image: osrm/osrm-backend:latest
+    container_name: food-delivery-osrm
+    restart: unless-stopped
+    ports:
+      - "5050:5000"
+    volumes:
+      - ./osrm-data:/data
+    command: osrm-routed --algorithm mld /data/new-york-latest.osrm
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/table/v1/driving/-74.006,40.7128;-73.985,40.758"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
 volumes:
   kafka-data:
     driver: local

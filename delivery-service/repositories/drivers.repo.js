@@ -66,3 +66,66 @@ export async function getDrivers(filters = {}) {
     return driverObject;
   });
 }
+
+/**
+ * Get available drivers near a location using MongoDB $near geospatial query.
+ * Results are automatically sorted by distance (nearest first).
+ * Only returns drivers with fresh location data (not stale).
+ *
+ * @param {number} longitude - Restaurant longitude
+ * @param {number} latitude - Restaurant latitude
+ * @param {number} radiusKm - Search radius in kilometers
+ * @param {Array} excludeDriverIds - Driver IDs to exclude (e.g., declined drivers)
+ * @returns {Array} - Drivers sorted by distance from the location
+ */
+export async function getAvailableDriversNear(
+  longitude,
+  latitude,
+  radiusKm,
+  excludeDriverIds = []
+) {
+  const staleMinutes = parseInt(process.env.DRIVER_LOCATION_STALE_MINUTES || "15", 10);
+  const staleThreshold = new Date(Date.now() - staleMinutes * 60 * 1000);
+
+  const query = {
+    isAvailable: true,
+    currentLocation: {
+      $near: {
+        $geometry: { type: "Point", coordinates: [longitude, latitude] },
+        $maxDistance: radiusKm * 1000, // Convert km to meters
+      },
+    },
+    locationUpdatedAt: { $gte: staleThreshold },
+  };
+
+  if (excludeDriverIds.length > 0) {
+    query._id = { $nin: excludeDriverIds };
+  }
+
+  const drivers = await Driver.find(query);
+  return drivers.map((driver) => driver.toObject());
+}
+
+/**
+ * Update a driver's live GPS location.
+ *
+ * @param {string} driverId - Driver ID (same as user ID)
+ * @param {number} longitude - New longitude
+ * @param {number} latitude - New latitude
+ * @returns {Object} - Updated driver document
+ */
+export async function updateDriverLocation(driverId, longitude, latitude) {
+  const result = await Driver.findByIdAndUpdate(
+    driverId,
+    {
+      currentLocation: {
+        type: "Point",
+        coordinates: [longitude, latitude],
+      },
+      locationUpdatedAt: new Date(),
+    },
+    { new: true }
+  );
+  return result ? result.toObject() : null;
+}
+

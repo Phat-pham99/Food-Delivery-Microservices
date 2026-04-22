@@ -4,6 +4,7 @@ import {
   getDriver,
   getDriverByUserId,
   updateDriverAvailability,
+  getAvailableDriversNear,
 } from "../repositories/drivers.repo.js";
 import {
   upsertDelivery,
@@ -14,6 +15,12 @@ import {
   findAvailableDriverForReassignment,
 } from "../repositories/deliveries.repo.js";
 import { publishMessage, TOPICS } from "../config/kafka.js";
+import {
+  getTravelTimeMatrix,
+  haversineDistance,
+  estimateTravelTime,
+} from "../utils/osrm.js";
+import { logger } from "../utils/logger.js";
 
 /**
  * Assign delivery to a specific driver
@@ -244,14 +251,16 @@ export async function completeDelivery(
 }
 
 /**
- * Auto-assigns a driver to an order based on availability and proximity
- * @param {Object} orderData - Order information from Kafka
+ * Auto-assigns a driver to an order based on proximity and rating.
+ * Uses OSRM for road-network travel times with Haversine/rating fallbacks.
+ *
+ * @param {Object} orderData - Order information from Kafka (includes restaurant.location)
  * @param {Object} producer - Kafka producer
  * @param {string} serviceName - Service name for logging
  * @returns {Object|null} - Assigned driver info or null if no driver available
  */
 export async function autoAssignDriver(orderData, producer, serviceName) {
-  const { orderId, restaurantId, deliveryAddress } = orderData;
+  const { orderId, restaurantId, deliveryAddress, restaurantLocation } = orderData;
 
   console.log(
     `🚗 [${serviceName}] Starting auto-assignment for order ${orderId}`
@@ -267,33 +276,28 @@ export async function autoAssignDriver(orderData, producer, serviceName) {
       return null;
     }
 
-    // Get all available drivers (not currently on delivery)
-    // Mongoose repo returns camelCase
-    const availableDrivers = await import("../repositories/drivers.repo.js").then(m => m.getDrivers({ isAvailable: true }));
+    let selectedDriver;
 
-    console.log(
-      `📊 [${serviceName}] Found ${availableDrivers.length} available drivers`
-    );
-
-    if (availableDrivers.length === 0) {
+    if (restaurantLocation?.coordinates?.length === 2) {
+      // Use proximity-based selection (OSRM + rating scoring)
+      const [lng, lat] = restaurantLocation.coordinates;
       console.log(
-        `⚠️ [${serviceName}] No available drivers found for order ${orderId}`
+        `📍 [${serviceName}] Using proximity-based selection from restaurant [${lng}, ${lat}]`
       );
-      return null;
+      selectedDriver = await selectNearestBestDriver({ lng, lat });
+    } else {
+      // No restaurant location available — fall back to rating-only
+      console.log(
+        `⚠️ [${serviceName}] No restaurant location available, falling back to rating-based selection`
+      );
+      const { getDrivers } = await import("../repositories/drivers.repo.js");
+      const availableDrivers = await getDrivers({ isAvailable: true });
+      selectedDriver = selectBestDriverByRating(availableDrivers);
     }
-
-    console.log(
-      `🚗 [${serviceName}] Found ${availableDrivers.length} available drivers for order ${orderId}`
-    );
-
-    // Simple assignment algorithm:
-    // 1. Prioritize drivers with higher ratings
-    // 2. Among same ratings, prioritize drivers with fewer total deliveries (load balancing)
-    const selectedDriver = selectBestDriver(availableDrivers);
 
     if (!selectedDriver) {
       console.log(
-        `⚠️ [${serviceName}] No suitable driver found after selection for order ${orderId}`
+        `⚠️ [${serviceName}] No suitable driver found for order ${orderId}`
       );
       return null;
     }
@@ -303,16 +307,15 @@ export async function autoAssignDriver(orderData, producer, serviceName) {
       driverId: selectedDriver.id,
       driverName: selectedDriver.name,
       rating: selectedDriver.rating,
-      totalDeliveries: selectedDriver.totalDeliveries,
+      estimatedTravelTimeSec: selectedDriver.estimatedTravelTimeSeconds
+        ? Math.round(selectedDriver.estimatedTravelTimeSeconds)
+        : "N/A",
     });
 
-    // Generate random ETA between 15-30 minutes
-    const minMinutes = 15;
-    const maxMinutes = 30;
-    const randomMinutes =
-      Math.floor(Math.random() * (maxMinutes - minMinutes + 1)) + minMinutes;
+    // Use OSRM travel time for ETA, or default to 20 min
+    const travelTimeSec = selectedDriver.estimatedTravelTimeSeconds || 20 * 60;
     const estimatedDeliveryTime = new Date(
-      Date.now() + randomMinutes * 60 * 1000
+      Date.now() + travelTimeSec * 1000
     ).toISOString();
 
     // Create delivery record
@@ -324,7 +327,7 @@ export async function autoAssignDriver(orderData, producer, serviceName) {
       deliveryAddress,
       status: "assigned",
       assignedAt: new Date().toISOString(),
-      estimatedDeliveryTime: estimatedDeliveryTime,
+      estimatedDeliveryTime,
       driverName: selectedDriver.name,
       driverPhone: selectedDriver.phone,
       vehicle: selectedDriver.vehicle,
@@ -346,7 +349,7 @@ export async function autoAssignDriver(orderData, producer, serviceName) {
         orderId,
         driverId: selectedDriver.id,
         assignedAt: delivery.assignedAt,
-        estimatedDeliveryTime: estimatedDeliveryTime,
+        estimatedDeliveryTime,
       },
       orderId
     );
@@ -378,25 +381,161 @@ export async function autoAssignDriver(orderData, producer, serviceName) {
 }
 
 /**
- * Selects the best driver from available drivers
- * @param {Array} availableDrivers - Array of available drivers
+ * Legacy fallback: select driver by rating only (no location data available)
+ * @param {Array} drivers - Array of available drivers
  * @returns {Object|null} - Selected driver or null
  */
-function selectBestDriver(availableDrivers) {
-  if (availableDrivers.length === 0) return null;
-
-  // Sort drivers by rating (descending) and then by total deliveries (ascending)
-  const sortedDrivers = availableDrivers.sort((a, b) => {
-    // First, sort by rating (higher is better)
+function selectBestDriverByRating(drivers) {
+  if (drivers.length === 0) return null;
+  const sorted = [...drivers].sort((a, b) => {
     const ratingDiff = parseFloat(b.rating) - parseFloat(a.rating);
     if (ratingDiff !== 0) return ratingDiff;
-
-    // If ratings are equal, sort by total deliveries (lower is better for load balancing)
     return a.totalDeliveries - b.totalDeliveries;
   });
+  return sorted[0];
+}
 
-  // Return the best driver
-  return sortedDrivers[0];
+/**
+ * Score and rank drivers using Haversine distance (OSRM fallback)
+ * @param {Array} drivers - Drivers with currentLocation
+ * @param {Object} restaurantLocation - { lng, lat }
+ * @returns {Object|null} - Best driver with estimatedTravelTimeSeconds
+ */
+function selectByHaversine(drivers, restaurantLocation) {
+  const scored = drivers.map((driver) => {
+    const [dLng, dLat] = driver.currentLocation.coordinates;
+    const dist = haversineDistance(
+      restaurantLocation.lat, restaurantLocation.lng,
+      dLat, dLng
+    );
+    return { driver, travelTimeSeconds: estimateTravelTime(dist), rating: parseFloat(driver.rating) || 0 };
+  });
+  return rankAndPickBest(scored);
+}
+
+/**
+ * Normalize scores and pick the best driver.
+ * Lower score = better (proximity is cost, rating is benefit).
+ *
+ * @param {Array} scored - [{ driver, travelTimeSeconds, rating }]
+ * @returns {Object|null} - Best driver with estimatedTravelTimeSeconds attached
+ */
+function rankAndPickBest(scored) {
+  if (scored.length === 0) return null;
+  if (scored.length === 1) {
+    return { ...scored[0].driver, estimatedTravelTimeSeconds: scored[0].travelTimeSeconds };
+  }
+
+  const W_TIME = parseFloat(process.env.DRIVER_WEIGHT_TIME || "0.7");
+  const W_RATING = parseFloat(process.env.DRIVER_WEIGHT_RATING || "0.3");
+
+  const maxTime = Math.max(...scored.map((s) => s.travelTimeSeconds));
+  const minTime = Math.min(...scored.map((s) => s.travelTimeSeconds));
+  const maxRating = Math.max(...scored.map((s) => s.rating));
+  const minRating = Math.min(...scored.map((s) => s.rating));
+
+  const ranked = scored.map((s) => {
+    const normTime = maxTime === minTime ? 0 : (s.travelTimeSeconds - minTime) / (maxTime - minTime);
+    const normRating = maxRating === minRating ? 1 : (s.rating - minRating) / (maxRating - minRating);
+    // Lower score = better: penalize distance, reward rating
+    const score = W_TIME * normTime - W_RATING * normRating;
+    return { ...s, score };
+  });
+
+  ranked.sort((a, b) => a.score - b.score);
+  const best = ranked[0];
+
+  logger.info("Driver ranked and selected", {
+    driverId: best.driver.id,
+    name: best.driver.name,
+    travelTimeSec: Math.round(best.travelTimeSeconds),
+    rating: best.rating,
+    score: best.score.toFixed(4),
+    totalCandidates: ranked.length,
+  });
+
+  return { ...best.driver, estimatedTravelTimeSeconds: best.travelTimeSeconds };
+}
+
+/**
+ * Select the best driver using proximity (OSRM) + rating scoring.
+ * Pipeline: MongoDB $near pre-filter → OSRM Table API → score → pick best.
+ * Falls back to Haversine if OSRM is down, then to rating-only if no locations.
+ *
+ * @param {Object} restaurantLocation - { lng, lat }
+ * @param {Array} excludeDriverIds - Driver IDs to skip
+ * @returns {Object|null} - Best driver with estimatedTravelTimeSeconds
+ */
+async function selectNearestBestDriver(restaurantLocation, excludeDriverIds = []) {
+  const initialRadius = parseFloat(process.env.DRIVER_SEARCH_RADIUS_KM || "5");
+  const maxRadius = parseFloat(process.env.DRIVER_MAX_SEARCH_RADIUS_KM || "25");
+  const radii = [initialRadius, 10, 15, maxRadius];
+
+  let nearbyDrivers = [];
+
+  // Expanding radius search
+  for (const radius of radii) {
+    nearbyDrivers = await getAvailableDriversNear(
+      restaurantLocation.lng,
+      restaurantLocation.lat,
+      radius,
+      excludeDriverIds
+    );
+    if (nearbyDrivers.length > 0) {
+      logger.info(`Found ${nearbyDrivers.length} drivers within ${radius}km`);
+      break;
+    }
+    logger.info(`No drivers within ${radius}km, expanding radius...`);
+  }
+
+  // If no drivers with fresh locations found, fall back to rating-only
+  if (nearbyDrivers.length === 0) {
+    logger.warn("No drivers with fresh locations found in any radius, falling back to rating-based selection");
+    const { getDrivers } = await import("../repositories/drivers.repo.js");
+    const allAvailable = await getDrivers({ isAvailable: true });
+    const filtered = allAvailable.filter(
+      (d) => !excludeDriverIds.includes(d.id?.toString())
+    );
+    return selectBestDriverByRating(filtered);
+  }
+
+  // Prepare destinations for OSRM
+  const destinations = nearbyDrivers.map((d) => ({
+    id: d.id,
+    lng: d.currentLocation.coordinates[0],
+    lat: d.currentLocation.coordinates[1],
+  }));
+
+  // Call OSRM Table API
+  const travelTimes = await getTravelTimeMatrix(restaurantLocation, destinations);
+
+  if (!travelTimes) {
+    // OSRM failed — fallback to Haversine
+    logger.warn("OSRM unavailable, falling back to Haversine distance");
+    return selectByHaversine(nearbyDrivers, restaurantLocation);
+  }
+
+  // Merge travel times with driver data
+  const scored = nearbyDrivers
+    .map((driver) => {
+      const tt = travelTimes.find(
+        (t) => t.driverId.toString() === driver.id.toString()
+      );
+      if (!tt) return null; // Driver was unreachable via OSRM
+      return {
+        driver,
+        travelTimeSeconds: tt.travelTimeSeconds,
+        rating: parseFloat(driver.rating) || 0,
+      };
+    })
+    .filter(Boolean);
+
+  if (scored.length === 0) {
+    logger.warn("All drivers unreachable via OSRM, falling back to Haversine");
+    return selectByHaversine(nearbyDrivers, restaurantLocation);
+  }
+
+  return rankAndPickBest(scored);
 }
 
 // updateDriverAvailability is now imported from repositories/drivers.repo.js
@@ -480,13 +619,14 @@ export async function handleFoodReady(orderData, producer, serviceName) {
       return;
     }
 
-    // Auto-assign a driver
+    // Auto-assign a driver (pass restaurant location for proximity-based selection)
     const assignedDriver = await autoAssignDriver(
       {
         orderId,
         restaurantId,
         userId,
         deliveryAddress,
+        restaurantLocation: restaurant?.location || null,
       },
       producer,
       serviceName
@@ -530,19 +670,23 @@ export async function handleFoodReady(orderData, producer, serviceName) {
 }
 
 /**
- * Reassign delivery when declined by driver
+ * Reassign delivery when declined by driver.
+ * Uses proximity-based selection if restaurant location is available.
+ *
  * @param {string} orderId - Order ID
  * @param {string} deliveryId - Delivery ID
  * @param {Array} excludeDriverIds - Driver IDs who have declined
  * @param {Object} producer - Kafka producer
  * @param {string} serviceName - Service name
+ * @param {Object} restaurantLocation - Optional { type: "Point", coordinates: [lng, lat] }
  */
 export async function reassignDelivery(
   orderId,
   deliveryId,
   excludeDriverIds,
   producer,
-  serviceName
+  serviceName,
+  restaurantLocation = null
 ) {
   try {
     console.log(
@@ -550,10 +694,16 @@ export async function reassignDelivery(
     );
     console.log(`   Excluding drivers: ${excludeDriverIds.join(", ")}`);
 
-    // Find an available driver (excluding those who declined)
-    const availableDriver = await findAvailableDriverForReassignment(
-      excludeDriverIds
-    );
+    let availableDriver;
+
+    if (restaurantLocation?.coordinates?.length === 2) {
+      // Use proximity-based selection (excluding declined drivers)
+      const [lng, lat] = restaurantLocation.coordinates;
+      availableDriver = await selectNearestBestDriver({ lng, lat }, excludeDriverIds);
+    } else {
+      // Fallback: find any available driver excluding declined ones
+      availableDriver = await findAvailableDriverForReassignment(excludeDriverIds);
+    }
 
     if (!availableDriver) {
       console.warn(

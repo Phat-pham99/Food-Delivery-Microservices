@@ -12,6 +12,7 @@ import {
   getDrivers,
   getDriverByUserId,
   updateDriverAvailability,
+  updateDriverLocation,
 } from "../repositories/drivers.repo.js";
 import { transformDelivery, transformDriver } from "../utils/dataTransformation.js";
 import {
@@ -342,4 +343,37 @@ export const getDeliveryDetailsService = async (deliveryId) => {
   logger.info("Delivery details retrieved", { deliveryId });
 
   return transformDelivery(delivery);
+};
+
+/**
+ * Update the authenticated driver's GPS location.
+ * @param {string} userId - Driver's user ID (from JWT)
+ * @param {number} longitude - GPS longitude
+ * @param {number} latitude - GPS latitude
+ * @returns {{ location: Object, locationUpdatedAt: Date }}
+ */
+export const updateLocationService = async (userId, longitude, latitude) => {
+  const driver = await getDriverByUserId(userId);
+  if (!driver) {
+    const error = new Error("Driver profile not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const updated = await updateDriverLocation(userId, longitude, latitude);
+  if (!updated) {
+    const error = new Error("Failed to update location");
+    error.statusCode = 500;
+    throw error;
+  }
+
+  logger.info("Driver location updated", {
+    driverId: userId,
+    coordinates: [longitude, latitude],
+  });
+
+  return {
+    location: updated.currentLocation,
+    locationUpdatedAt: updated.locationUpdatedAt,
+  };
 };

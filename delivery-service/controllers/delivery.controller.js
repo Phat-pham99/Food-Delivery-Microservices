@@ -9,6 +9,7 @@ import {
   acceptDeliveryService,
   declineDeliveryService,
   getDeliveryDetailsService,
+  updateLocationService,
 } from "../services/delivery.service.js";
 import {logger} from "../utils/logger.js";
 
@@ -233,6 +234,55 @@ export const getDeliveryDetails = async (req, res) => {
     }
     res.status(500).json({
       error: "Failed to get delivery details",
+      details: error.message,
+    });
+  }
+};
+
+/**
+ * Update the authenticated driver's current GPS location.
+ * Called by the courier frontend at regular intervals (every ~10 seconds).
+ *
+ * PUT /drivers/me/location
+ * Body: { latitude: number, longitude: number }
+ */
+export const updateMyLocation = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    const { latitude, longitude } = req.body;
+
+    // Validate coordinates
+    if (latitude == null || longitude == null) {
+      return res.status(400).json({
+        error: "latitude and longitude are required",
+      });
+    }
+
+    const lat = parseFloat(latitude);
+    const lng = parseFloat(longitude);
+
+    if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return res.status(400).json({
+        error: "Invalid coordinates. Latitude must be -90 to 90, longitude -180 to 180.",
+      });
+    }
+
+    const result = await updateLocationService(userId, lng, lat);
+
+    res.json({
+      message: "Location updated successfully",
+      location: result.location,
+      locationUpdatedAt: result.locationUpdatedAt,
+    });
+  } catch (error) {
+    logger.error("Error updating driver location", {
+      error: error.message,
+    });
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ error: error.message });
+    }
+    res.status(500).json({
+      error: "Failed to update location",
       details: error.message,
     });
   }

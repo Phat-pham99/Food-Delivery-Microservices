@@ -10,6 +10,7 @@ import {
   acceptDelivery,
   declineDelivery,
   getDeliveryDetails,
+  updateMyLocation,
 } from "../controllers/delivery.controller.js";
 import { authenticateToken } from "../middleware/auth.js";
 import { requireRole } from "../middleware/role.js";
@@ -63,6 +64,12 @@ export default function deliveryRoutes() {
     authenticateToken,
     requireRole("driver"),
     toggleMyAvailability
+  );
+  router.put(
+    "/drivers/me/location",
+    authenticateToken,
+    requireRole("driver"),
+    updateMyLocation
   );
   router.post(
     "/delivery/:deliveryId/accept",
